@@ -62,24 +62,37 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
         android:text="Vitesse: -- km/h"
-        android:textSize="24sp"
-        android:textColor="#FF0000"
+        android:textSize="32sp"
+        android:textColor="#000000"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tv_location" />
 
     <TextView
+        android:id="@+id/tv_speed_limit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="Limite : -- km/h"
+        android:textSize="24sp"
+        android:textColor="#555555"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_speed" />
+
+    <TextView
         android:id="@+id/tv_nearest_panneau"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="40dp"
+        android:layout_marginTop="20dp"
         android:text="Panneau le plus proche : --"
         android:textSize="18sp"
         android:gravity="center"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tv_speed" />
+        app:layout_constraintTop_toBottomOf="@id/tv_speed_limit" />
 
     <!-- Suppression du ScrollView et tv_result qui affichaient les 20 valeurs -->
 
