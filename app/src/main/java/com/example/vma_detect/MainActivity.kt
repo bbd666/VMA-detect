@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var etThreshold: EditText
 
     private val KEY_THRESHOLD = "search_threshold"
+    private val detectedPanneaux = mutableSetOf<String>()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -100,15 +101,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
                                 lat.add(item.latitude)
                                 long.add(item.longitude)
                             }
-                        }
-
-                        // Préparation du fichier : Une seule ligne par nom de panneau (le premier trouvé dans l'ordre des latitudes)
-                        val distinctLines = sortedData.distinctBy { it.nom }
-                            .map { "${it.nom} : ${decodePanneau(it.nom)} : ${it.latitude} : ${it.longitude}" }
-
-                        saveDistinctValuesToFile(distinctLines)
-
-                        runOnUiThread {
                             Toast.makeText(this, "Chargé : ${tempData.size} lignes", Toast.LENGTH_SHORT).show()
                             tvNearestPanneau.text = "Fichier chargé. En attente de position..."
                         }
@@ -141,6 +133,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         loadSavedThreshold()
+        clearLogFile()
 
         findViewById<Button>(R.id.btn_load_csv).setOnClickListener {
             getCsvFile.launch("text/comma-separated-values")
@@ -240,6 +233,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
             val pLon = long[nearestIndex]
             val decodedName = decodePanneau(panneau[nearestIndex])
             tvNearestPanneau.text = "Panneau le plus proche :\n$decodedName ($distText)\nPos: $pLat, $pLon"
+            
+            logDetection(panneau[nearestIndex], pLat, pLon)
         } else {
             tvNearestPanneau.text = "Aucun panneau à moins de ${threshold.toInt()}m"
         }
@@ -320,29 +315,33 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun saveDistinctValuesToFile(values: List<String>) {
-        if (values.isEmpty()) return
+    private fun clearLogFile() {
         try {
             val directory = getExternalFilesDir(null)
             val file = File(directory, "valeurs_distinctes.txt")
-            
-            // Utilisation d'un writer pour garantir que le fichier est bien "achevé" et vidé avant écriture
-            file.bufferedWriter().use { writer ->
-                values.forEachIndexed { index, line ->
-                    writer.write(line)
-                    if (index < values.size - 1) {
-                        writer.newLine()
-                    }
-                }
-                writer.flush()
+            if (file.exists()) {
+                file.delete()
             }
-            
-            runOnUiThread {
-                Toast.makeText(this, "Fichier sauvegardé (${values.size} lignes)", Toast.LENGTH_SHORT).show()
-            }
+            detectedPanneaux.clear()
         } catch (e: Exception) {
-            runOnUiThread {
-                Toast.makeText(this, "Erreur écriture fichier : ${e.message}", Toast.LENGTH_SHORT).show()
+            // Échec silencieux au démarrage
+        }
+    }
+
+    private fun logDetection(nom: String, la: Float, lo: Float) {
+        val decoded = decodePanneau(nom)
+        val line = "$nom, $decoded, $la, $lo"
+        
+        // Si le panneau n'a jamais été détecté (nom + coordonnées uniques)
+        if (detectedPanneaux.add(line)) {
+            try {
+                val directory = getExternalFilesDir(null)
+                val file = File(directory, "valeurs_distinctes.txt")
+                
+                // On ajoute la ligne à la fin du fichier
+                file.appendText(line + "\n")
+            } catch (e: Exception) {
+                // Échec silencieux de l'écriture
             }
         }
     }
