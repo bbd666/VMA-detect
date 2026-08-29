@@ -44,30 +44,16 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/tv_location"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="Recherche du signal GPS..."
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/layout_threshold" />
-
-    <TextView
         android:id="@+id/tv_speed"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="Vitesse: -- km/h"
-        android:textSize="32sp"
-        android:textColor="#000000"
+        android:layout_marginTop="30dp"
+        android:text="Vitesse : 0 km/h"
+        android:textSize="48sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tv_location" />
+        app:layout_constraintTop_toBottomOf="@id/layout_threshold" />
 
     <TextView
         android:id="@+id/tv_speed_limit"
@@ -83,6 +69,19 @@
         app:layout_constraintTop_toBottomOf="@id/tv_speed" />
 
     <TextView
+        android:id="@+id/tv_location"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="Recherche du signal GPS..."
+        android:textSize="14sp"
+        android:textStyle="normal"
+        android:gravity="center"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_speed_limit" />
+
+    <TextView
         android:id="@+id/tv_nearest_panneau"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -92,8 +91,29 @@
         android:gravity="center"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tv_speed_limit" />
+        app:layout_constraintTop_toBottomOf="@id/tv_location" />
 
-    <!-- Suppression du ScrollView et tv_result qui affichaient les 20 valeurs -->
+    <Button
+        android:id="@+id/btn_toggle_log"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="Activer Log GPS"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_nearest_panneau" />
+
+    <TextView
+        android:id="@+id/tv_csv_filename"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="20dp"
+        android:gravity="center"
+        android:text="Fichier : aucun"
+        android:textSize="14sp"
+        android:textColor="#888888"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

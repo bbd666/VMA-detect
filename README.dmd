@@ -9,11 +9,21 @@ Application Android de détection et d'alerte de Vitesse Maximale Autorisée (VM
 - **Gestion intelligente de la vitesse limite** :
     - Mise à jour automatique de la limite lors de la détection de panneaux (Limitation, Entrée d'agglomération, Autoroute, etc.).
     - Historisation des limites pour restauration lors des panneaux de "Fin de limitation" ou "Sortie d'agglomération".
-- **Alertes visuelles** : La vitesse s'affiche en **rouge** en cas de dépassement de la limite actuelle.
+- **Alertes visuelles et sonores** :
+    - La vitesse s'affiche en **rouge** en cas de dépassement.
+    - Un bip sonore retentit toutes les 2 secondes tant que la vitesse est excessive.
+- **Journalisation GPS (Optionnel)** :
+    - Bouton pour activer/désactiver l'enregistrement du parcours.
+    - Enregistrement des coordonnées (timestamp, lat, lon, vitesse) dans `log_gps.txt`.
+    - Sauvegarde intelligente : un point n'est enregistré que s'il est distant d'au moins 10 mètres du précédent.
+    - Mode "Append" : le fichier n'est jamais écrasé.
 - **Persistance des données** :
+    - Affichage en bas de l'écran du nom du dernier fichier CSV chargé.
     - mémorisation du dernier fichier CSV chargé.
     - Restauration de la dernière vitesse limite connue au démarrage si l'utilisateur est au même endroit (rayon paramétrable).
-- **Optimisation de l'affichage** : Maintient l'écran allumé automatiquement lorsque le téléphone est en charge.
+- **Optimisation de l'affichage** :
+    - Maintient l'écran allumé automatiquement lorsque le téléphone est en charge (renforcé via `onResume`).
+    - Compatibilité **Mode Sombre** : les couleurs s'adaptent au thème du système (texte clair sur fond sombre, sombre sur fond clair).
 - **Paramétrage** : Seuil de détection des panneaux (en mètres) ajustable directement dans l'interface.
 
 ## 🛠 Installation & Configuration
@@ -26,9 +36,15 @@ Application Android de détection et d'alerte de Vitesse Maximale Autorisée (VM
 
 ## 📱 Interface
 
-- **Haut** : Bouton de chargement et réglage du seuil.
-- **Milieu** : Position actuelle et Vitesse instantanée.
-- **Bas** : Vitesse limite actuelle et détails du panneau le plus proche détecté.
+- **Haut** : Bouton de chargement et réglage du seuil de détection.
+- **Centre** :
+    - **Vitesse instantanée** (affichage large et adaptatif).
+    - **Vitesse limite** autorisée.
+    - **Position GPS** en temps réel.
+- **Bas** :
+    - Détails du panneau le plus proche.
+    - Contrôle du journal GPS (Log).
+    - Nom du fichier CSV source.
 
 ## 📊 Source des données
 

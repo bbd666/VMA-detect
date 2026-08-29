@@ -9,14 +9,14 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -24,7 +24,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
+import java.util.Locale
 
 data class PanneauData(val nom: String, val latitude: Float, val longitude: Float)
 
@@ -39,7 +41,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var tvSpeed: TextView
     private lateinit var tvNearestPanneau: TextView
     private lateinit var tvSpeedLimit: TextView
+    private lateinit var tvCsvFilename: TextView
     private lateinit var etThreshold: EditText
+    private lateinit var btnToggleLog: Button
 
     private val KEY_THRESHOLD = "search_threshold"
     private val KEY_LAST_LIMIT = "last_limit"
@@ -53,6 +57,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var savedLat: Float = 0f
     private var savedLon: Float = 0f
     private val limitHistory = mutableListOf<Int>()
+
+    private var isLoggingEnabled = false
+    private var lastLoggedLocation: Location? = null
+    private val toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+    private var lastAlertTime: Long = 0
+    private var defaultSpeedColor: Int = android.graphics.Color.BLACK
 
     private val powerConnectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -104,14 +114,23 @@ class MainActivity : AppCompatActivity(), LocationListener {
         tvSpeed = findViewById(R.id.tv_speed)
         tvNearestPanneau = findViewById(R.id.tv_nearest_panneau)
         tvSpeedLimit = findViewById(R.id.tv_speed_limit)
+        tvCsvFilename = findViewById(R.id.tv_csv_filename)
         etThreshold = findViewById(R.id.et_threshold)
+        btnToggleLog = findViewById(R.id.btn_toggle_log)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        
+        defaultSpeedColor = tvSpeed.currentTextColor
 
         loadSavedThreshold()
         updateLimitDisplay()
+        tvSpeed.text = "Vitesse : 0 km/h"
 
         findViewById<Button>(R.id.btn_load_csv).setOnClickListener {
             getCsvFile.launch(arrayOf("*/*"))
+        }
+
+        btnToggleLog.setOnClickListener {
+            toggleGpsLogging()
         }
 
         checkLocationPermissions()
@@ -168,10 +187,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        val latPos = String.format("%.6f", location.latitude)
-        val lonPos = String.format("%.6f", location.longitude)
+        val latPos = String.format(Locale.US, "%.6f", location.latitude)
+        val lonPos = String.format(Locale.US, "%.6f", location.longitude)
         tvLocation.text = "Position : Lat $latPos, Lon $lonPos"
 
+        // Vitesse en km/h
+        val speedKmH = (location.speed * 3.6).toInt()
+        tvSpeed.text = "Vitesse : $speedKmH km/h"
+        
         // Restauration de la limite si non fait
         if (!limitRestored) {
             val threshold = etThreshold.text.toString().toFloatOrNull() ?: 5f
@@ -182,7 +205,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
             val distance = location.distanceTo(lastLoc)
             
             if (distance <= threshold && savedLat != 0f) {
-                // On garde currentLimit chargé depuis SharedPreferences
                 Toast.makeText(this, "Limite restaurée : $currentLimit km/h", Toast.LENGTH_SHORT).show()
             } else {
                 currentLimit = 50
@@ -191,18 +213,56 @@ class MainActivity : AppCompatActivity(), LocationListener {
             limitRestored = true
         }
 
-        // Vitesse en km/h
-        val speedKmH = (location.speed * 3.6).toInt()
-        tvSpeed.text = "Vitesse : $speedKmH km/h"
-        
         // Signalement si dépassement
         if (speedKmH > currentLimit) {
             tvSpeed.setTextColor(android.graphics.Color.RED)
+            playAlertSound()
         } else {
-            tvSpeed.setTextColor(android.graphics.Color.BLACK)
+            tvSpeed.setTextColor(defaultSpeedColor)
+        }
+
+        // Log GPS si activé
+        if (isLoggingEnabled) {
+            logGpsPosition(location)
         }
 
         updateNearestPanneau(location)
+    }
+
+    private fun playAlertSound() {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastAlertTime > 2000) { // Alerte toutes les 2 secondes max
+            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
+            lastAlertTime = currentTime
+        }
+    }
+
+    private fun logGpsPosition(location: Location) {
+        val lastLoc = lastLoggedLocation
+        if (lastLoc == null || location.distanceTo(lastLoc) >= 10f) {
+            try {
+                val directory = getExternalFilesDir(null)
+                val file = File(directory, "log_gps.txt")
+                val timestamp = System.currentTimeMillis()
+                val line = "$timestamp, ${location.latitude}, ${location.longitude}, ${location.speed * 3.6}\n"
+                file.appendText(line)
+                lastLoggedLocation = location
+            } catch (e: Exception) {
+                // Échec silencieux
+            }
+        }
+    }
+
+    private fun toggleGpsLogging() {
+        isLoggingEnabled = !isLoggingEnabled
+        if (isLoggingEnabled) {
+            btnToggleLog.text = "Désactiver Log GPS"
+            Toast.makeText(this, "Logging GPS activé", Toast.LENGTH_SHORT).show()
+        } else {
+            btnToggleLog.text = "Activer Log GPS"
+            Toast.makeText(this, "Logging GPS désactivé", Toast.LENGTH_SHORT).show()
+            lastLoggedLocation = null
+        }
     }
 
     private fun updateNearestPanneau(currentLocation: Location) {
@@ -252,17 +312,28 @@ class MainActivity : AppCompatActivity(), LocationListener {
         super.onStart()
         val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val batteryStatus = registerReceiver(powerConnectionReceiver, intentFilter)
-        
-        // Vérification initiale de l'état de charge
-        val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
-        updateKeepScreenOn(isCharging)
+        checkBatteryStatus(batteryStatus)
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val batteryStatus = registerReceiver(null, intentFilter)
+        checkBatteryStatus(batteryStatus)
     }
 
     override fun onStop() {
         super.onStop()
-        unregisterReceiver(powerConnectionReceiver)
+        try {
+            unregisterReceiver(powerConnectionReceiver)
+        } catch (e: Exception) {}
+    }
+
+    private fun checkBatteryStatus(intent: Intent?) {
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+        updateKeepScreenOn(isCharging)
     }
 
     private fun updateKeepScreenOn(isCharging: Boolean) {
@@ -367,6 +438,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun loadCsvFromUri(uri: Uri) {
         try {
+            val fileName = getFileNameFromUri(uri)
+            tvCsvFilename.text = "Fichier : $fileName"
+            
             val tempData = mutableListOf<PanneauData>()
             contentResolver.openInputStream(uri)?.use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).use { reader ->
@@ -498,5 +572,23 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun updateLimitDisplay() {
         tvSpeedLimit.text = "Limite : $currentLimit km/h"
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String {
+        var name = "inconnu"
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    name = cursor.getString(nameIndex)
+                }
+            }
+        } catch (e: Exception) {}
+        return name
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        toneGenerator.release()
     }
 }
