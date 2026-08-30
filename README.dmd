@@ -4,10 +4,13 @@ Application Android de détection et d'alerte de Vitesse Maximale Autorisée (VM
 
 ## 🚀 Fonctionnalités
 
-- **Détection GPS en temps réel** : Suit la position et calcule la vitesse instantanée en km/h.
+- **Détection GPS en temps réel** :
+    - Suit la position et calcule la vitesse instantanée en km/h.
+    - **Filtrage des anomalies (Anti-Outlier)** : Algorithme qui ignore les points dont la précision est trop faible (> 60m) ou dont la vitesse de déplacement entre deux points est irréaliste (> 250 km/h), évitant ainsi les alertes erronées lors de sauts GPS.
 - **Base de données personnalisée** : Chargement de fichiers CSV contenant les coordonnées (lat, lon) et le type de panneaux.
 - **Gestion intelligente de la vitesse limite** :
     - Mise à jour automatique de la limite lors de la détection de panneaux (Limitation, Entrée d'agglomération, Autoroute, etc.).
+    - **Filtre de cohérence Agglo** : Ignore les changements de limite "Entrée" immédiatement suivis d'une "Sortie" (ou inversement) si la distance est inférieure à 50 mètres, afin d'éviter les oscillations dues aux imprécisions de la base de données.
     - Historisation des limites pour restauration lors des panneaux de "Fin de limitation" ou "Sortie d'agglomération".
 - **Alertes visuelles et sonores** :
     - La vitesse s'affiche en **rouge** en cas de dépassement.
@@ -17,13 +20,22 @@ Application Android de détection et d'alerte de Vitesse Maximale Autorisée (VM
     - Enregistrement des coordonnées (timestamp, lat, lon, vitesse) dans `log_gps.txt`.
     - Sauvegarde intelligente : un point n'est enregistré que s'il est distant d'au moins 10 mètres du précédent.
     - Mode "Append" : le fichier n'est jamais écrasé.
+- **Marquage de Zones (Manuel)** :
+    - Boutons ronds **Zone 30** et **Fin de zone 30**.
+    - Enregistrement immédiat de la position actuelle avec le label correspondant dans `points_interet.txt`.
+    - Mode "Append" pour conserver l'historique complet des marquages.
+- **Mode Test (Simulation)** :
+    - Bouton **Test Simulation** permettant de charger un fichier de log GPS (`.txt`).
+    - Simulation du trajet point par point en utilisant les données du fichier.
+    - Exportation automatique des détections réalisées pendant la simulation dans un fichier `res.txt`.
 - **Persistance des données** :
     - Affichage en bas de l'écran du nom du dernier fichier CSV chargé.
     - mémorisation du dernier fichier CSV chargé.
     - Restauration de la dernière vitesse limite connue au démarrage si l'utilisateur est au même endroit (rayon paramétrable).
 - **Optimisation de l'affichage** :
-    - Maintient l'écran allumé automatiquement lorsque le téléphone est en charge (renforcé via `onResume`).
-    - Compatibilité **Mode Sombre** : les couleurs s'adaptent au thème du système (texte clair sur fond sombre, sombre sur fond clair).
+    - Maintient l'écran allumé automatiquement lorsque le téléphone est en charge (renforcé par quadruple sécurité : Flags, WakeLock, Brightness Override et rafraîchissement périodique).
+    - **Note** : Sur certains modèles (Huawei, Xiaomi, Samsung), il est recommandé de désactiver l'optimisation de la batterie pour cette application dans les réglages Android pour garantir un fonctionnement ininterrompu.
+    - Compatibilité **Mode Sombre** : les couleurs s'adaptent au thème du système.
 - **Paramétrage** : Seuil de détection des panneaux (en mètres) ajustable directement dans l'interface.
 
 ## 🛠 Installation & Configuration

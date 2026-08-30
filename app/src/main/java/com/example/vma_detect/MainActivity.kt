@@ -14,6 +14,7 @@ import android.media.ToneGenerator
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import android.widget.*
@@ -44,6 +45,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var tvCsvFilename: TextView
     private lateinit var etThreshold: EditText
     private lateinit var btnToggleLog: Button
+    private lateinit var btnZone30: Button
+    private lateinit var btnFinZone30: Button
+    private lateinit var btnTestSimu: Button
 
     private val KEY_THRESHOLD = "search_threshold"
     private val KEY_LAST_LIMIT = "last_limit"
@@ -58,11 +62,29 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var savedLon: Float = 0f
     private val limitHistory = mutableListOf<Int>()
 
+    private var isCharging = false
     private var isLoggingEnabled = false
     private var lastLoggedLocation: Location? = null
-    private val toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+    private var lastValidLocation: Location? = null
+    private var lastValidSimuLocation: Location? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
     private var lastAlertTime: Long = 0
     private var defaultSpeedColor: Int = android.graphics.Color.BLACK
+
+    private var lastAggloType: String? = null
+    private var lastAggloLocation: Location? = null
+    private val AGGLO_FILTER_DISTANCE = 50f // mètres
+
+    private val keepAliveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val keepAliveRunnable = object : Runnable {
+        override fun run() {
+            if (isCharging) {
+                updateKeepScreenOn(true)
+            }
+            keepAliveHandler.postDelayed(this, 30000) // Toutes les 30 secondes
+        }
+    }
 
     private val powerConnectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -100,6 +122,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
+    private val getSimuFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            runSimulation(it)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -117,6 +145,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
         tvCsvFilename = findViewById(R.id.tv_csv_filename)
         etThreshold = findViewById(R.id.et_threshold)
         btnToggleLog = findViewById(R.id.btn_toggle_log)
+        btnZone30 = findViewById(R.id.btn_zone30)
+        btnFinZone30 = findViewById(R.id.btn_fin_zone30)
+        btnTestSimu = findViewById(R.id.btn_test_simu)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         
         defaultSpeedColor = tvSpeed.currentTextColor
@@ -131,6 +162,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
         btnToggleLog.setOnClickListener {
             toggleGpsLogging()
+        }
+
+        btnZone30.setOnClickListener {
+            logZoneEvent("Zone 30")
+        }
+
+        btnFinZone30.setOnClickListener {
+            logZoneEvent("Fin de zone 30")
+        }
+
+        btnTestSimu.setOnClickListener {
+            getSimuFile.launch(arrayOf("text/plain", "*/*"))
         }
 
         checkLocationPermissions()
@@ -187,14 +230,66 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        processNewLocation(location, false)
+    }
+
+    private fun processNewLocation(location: Location, isSimulation: Boolean) {
+        // Filtrage des points aberrants (activé en réel ET en simulation)
+        if (location.accuracy > 60) {
+            if (isLoggingEnabled) logDebug("Point rejeté (précision: ${location.accuracy}m)")
+            return 
+        }
+        
+        val last = if (isSimulation) lastValidSimuLocation else lastValidLocation
+        if (last != null) {
+            val distance = location.distanceTo(last)
+            val timeDeltaSec = (location.time - last.time) / 1000.0
+            
+            if (timeDeltaSec > 0) {
+                val calculatedSpeedKmh = (distance / timeDeltaSec) * 3.6
+                // Si la vitesse entre deux points > 250 km/h, c'est probablement un saut GPS aberrant
+                if (calculatedSpeedKmh > 250) {
+                    if (isLoggingEnabled || isSimulation) {
+                        val source = if (isSimulation) "SIMU" else "GPS"
+                        logDebug("Point rejeté [$source] (saut aberrant: ${calculatedSpeedKmh.toInt()} km/h)")
+                    }
+                    return
+                }
+            }
+        }
+        
+        if (isSimulation) {
+            lastValidSimuLocation = location
+        } else {
+            lastValidLocation = location
+        }
+
+        // Forçage périodique du maintien de l'écran si en charge
+        if (isCharging) {
+            runOnUiThread {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                window.decorView.keepScreenOn = true
+            }
+        }
+
         val latPos = String.format(Locale.US, "%.6f", location.latitude)
         val lonPos = String.format(Locale.US, "%.6f", location.longitude)
-        tvLocation.text = "Position : Lat $latPos, Lon $lonPos"
-
-        // Vitesse en km/h
-        val speedKmH = (location.speed * 3.6).toInt()
-        tvSpeed.text = "Vitesse : $speedKmH km/h"
         
+        runOnUiThread {
+            tvLocation.text = "Position : Lat $latPos, Lon $lonPos"
+            // Vitesse en km/h
+            val speedKmH = (location.speed * 3.6).toInt()
+            tvSpeed.text = "Vitesse : $speedKmH km/h"
+
+            // Signalement si dépassement
+            if (speedKmH > currentLimit) {
+                tvSpeed.setTextColor(android.graphics.Color.RED)
+                if (!isSimulation) playAlertSound()
+            } else {
+                tvSpeed.setTextColor(defaultSpeedColor)
+            }
+        }
+
         // Restauration de la limite si non fait
         if (!limitRestored) {
             val threshold = etThreshold.text.toString().toFloatOrNull() ?: 5f
@@ -205,7 +300,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             val distance = location.distanceTo(lastLoc)
             
             if (distance <= threshold && savedLat != 0f) {
-                Toast.makeText(this, "Limite restaurée : $currentLimit km/h", Toast.LENGTH_SHORT).show()
+                if (!isSimulation) Toast.makeText(this, "Limite restaurée : $currentLimit km/h", Toast.LENGTH_SHORT).show()
             } else {
                 currentLimit = 50
                 updateLimitDisplay()
@@ -213,38 +308,89 @@ class MainActivity : AppCompatActivity(), LocationListener {
             limitRestored = true
         }
 
-        // Signalement si dépassement
-        if (speedKmH > currentLimit) {
-            tvSpeed.setTextColor(android.graphics.Color.RED)
-            playAlertSound()
-        } else {
-            tvSpeed.setTextColor(defaultSpeedColor)
-        }
-
         // Log GPS si activé
-        if (isLoggingEnabled) {
+        if (isLoggingEnabled && !isSimulation) {
             logGpsPosition(location)
         }
 
-        updateNearestPanneau(location)
+        updateNearestPanneau(location, isSimulation)
+    }
+
+    private fun runSimulation(uri: Uri) {
+        Toast.makeText(this, "Démarrage de la simulation...", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                // On réinitialise les détections pour la simu
+                detectedPanneaux.clear()
+                lastValidSimuLocation = null
+                lastAggloType = null
+                lastAggloLocation = null
+                val resFile = File(getExternalFilesDir(null), "res.txt")
+                resFile.writeText("--- Début Simulation ---\n")
+
+                contentResolver.openInputStream(uri)?.use { inputStream ->
+                    BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                        var line: String? = reader.readLine()
+                        while (line != null) {
+                            val tokens = line.split(",")
+                            if (tokens.size >= 4) {
+                                try {
+                                    val time = tokens[0].trim().toLong()
+                                    val la = tokens[1].trim().toDouble()
+                                    val lo = tokens[2].trim().toDouble()
+                                    val speedKmh = tokens[3].trim().toDouble()
+
+                                    val mockLoc = Location("simu").apply {
+                                        latitude = la
+                                        longitude = lo
+                                        speed = (speedKmh / 3.6).toFloat()
+                                        this.time = time
+                                    }
+                                    processNewLocation(mockLoc, true)
+                                } catch (e: Exception) {}
+                            }
+                            line = reader.readLine()
+                        }
+                    }
+                }
+                runOnUiThread {
+                    Toast.makeText(this, "Simulation terminée. Résultats dans res.txt", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Erreur simu : ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun playAlertSound() {
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastAlertTime > 2000) { // Alerte toutes les 2 secondes max
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
+            try {
+                toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 400)
+            } catch (e: Exception) {
+                // Recréer le générateur si nécessaire
+                toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+                toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 400)
+            }
             lastAlertTime = currentTime
         }
     }
 
     private fun logGpsPosition(location: Location) {
         val lastLoc = lastLoggedLocation
+        // On ne logue que si on a bougé de plus de 10m
         if (lastLoc == null || location.distanceTo(lastLoc) >= 10f) {
             try {
                 val directory = getExternalFilesDir(null)
                 val file = File(directory, "log_gps.txt")
-                val timestamp = System.currentTimeMillis()
-                val line = "$timestamp, ${location.latitude}, ${location.longitude}, ${location.speed * 3.6}\n"
+                
+                // Utilisation du temps réel du point GPS
+                val timestamp = location.time
+                val speedKmh = location.speed * 3.6
+                
+                val line = "$timestamp, ${location.latitude}, ${location.longitude}, $speedKmh\n"
                 file.appendText(line)
                 lastLoggedLocation = location
             } catch (e: Exception) {
@@ -258,6 +404,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         if (isLoggingEnabled) {
             btnToggleLog.text = "Désactiver Log GPS"
             Toast.makeText(this, "Logging GPS activé", Toast.LENGTH_SHORT).show()
+            logDebug("--- Démarrage session log ---")
         } else {
             btnToggleLog.text = "Activer Log GPS"
             Toast.makeText(this, "Logging GPS désactivé", Toast.LENGTH_SHORT).show()
@@ -265,7 +412,34 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun updateNearestPanneau(currentLocation: Location) {
+    private fun logDebug(message: String) {
+        try {
+            val directory = getExternalFilesDir(null)
+            val file = File(directory, "log_gps.txt")
+            val timestamp = System.currentTimeMillis()
+            file.appendText("$timestamp, DEBUG, $message\n")
+        } catch (e: Exception) {}
+    }
+
+    private fun logZoneEvent(label: String) {
+        val location = lastValidLocation
+        if (location != null) {
+            try {
+                val directory = getExternalFilesDir(null)
+                val file = File(directory, "points_interet.txt")
+                val timestamp = System.currentTimeMillis()
+                val line = "$timestamp, ${location.latitude}, ${location.longitude}, $label\n"
+                file.appendText(line)
+                Toast.makeText(this, "$label enregistré", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Erreur écriture log", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "Position GPS non disponible", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateNearestPanneau(currentLocation: Location, isSimulation: Boolean = false) {
         if (panneau.isEmpty()) return
 
         var minDistance = Float.MAX_VALUE
@@ -296,30 +470,64 @@ class MainActivity : AppCompatActivity(), LocationListener {
             val pLat = lat[nearestIndex]
             val pLon = long[nearestIndex]
             val decodedName = decodePanneau(panneau[nearestIndex])
-            tvNearestPanneau.text = "Panneau le plus proche :\n$decodedName ($distText)\nPos: $pLat, $pLon"
+            
+            runOnUiThread {
+                tvNearestPanneau.text = "Panneau le plus proche :\n$decodedName ($distText)\nPos: $pLat, $pLon"
+            }
             
             // Si le panneau est détecté pour la première fois, on traite le changement de limite
             if (!isAlreadyDetected(panneau[nearestIndex], pLat, pLon)) {
-                processPanneauForLimit(panneau[nearestIndex])
+                if (isSimulation) {
+                    logSimulationDetection(panneau[nearestIndex], currentLocation, pLat, pLon)
+                }
+                val panneauLoc = Location("").apply {
+                    latitude = pLat.toDouble()
+                    longitude = pLon.toDouble()
+                }
+                processPanneauForLimit(panneau[nearestIndex], panneauLoc)
                 markAsDetected(panneau[nearestIndex], pLat, pLon)
             }
         } else {
-            tvNearestPanneau.text = "Aucun panneau à moins de ${threshold.toInt()}m"
+            runOnUiThread {
+                tvNearestPanneau.text = "Aucun panneau à moins de ${threshold.toInt()}m"
+            }
         }
+    }
+
+    private fun logSimulationDetection(panneauCode: String, location: Location, pLat: Float, pLon: Float) {
+        try {
+            val resFile = File(getExternalFilesDir(null), "res.txt")
+            val decoded = decodePanneau(panneauCode)
+            val line = "Détection: $decoded (Code: $panneauCode) à la position GPS [${location.latitude}, ${location.longitude}]. Position Panneau: [$pLat, $pLon]\n"
+            resFile.appendText(line)
+        } catch (e: Exception) {}
     }
 
     override fun onStart() {
         super.onStart()
-        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val intentFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }
         val batteryStatus = registerReceiver(powerConnectionReceiver, intentFilter)
-        checkBatteryStatus(batteryStatus)
+        
+        // Si batteryStatus est nul (cas rare), on tente de récupérer le dernier état connu
+        val lastStatus = batteryStatus ?: registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        checkBatteryStatus(lastStatus)
     }
     
     override fun onResume() {
         super.onResume()
-        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val batteryStatus = registerReceiver(null, intentFilter)
+        val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         checkBatteryStatus(batteryStatus)
+        keepAliveHandler.post(keepAliveRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveAppState()
+        keepAliveHandler.removeCallbacks(keepAliveRunnable)
     }
 
     override fun onStop() {
@@ -327,20 +535,58 @@ class MainActivity : AppCompatActivity(), LocationListener {
         try {
             unregisterReceiver(powerConnectionReceiver)
         } catch (e: Exception) {}
+        
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
     }
 
     private fun checkBatteryStatus(intent: Intent?) {
         val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
+        val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+        
+        val wasCharging = isCharging
+        isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL ||
+                plugged == BatteryManager.BATTERY_PLUGGED_AC ||
+                plugged == BatteryManager.BATTERY_PLUGGED_USB ||
+                plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS
+
+        if (isCharging && !wasCharging) {
+            Toast.makeText(this, "Charge détectée : Maintien écran activé", Toast.LENGTH_SHORT).show()
+        }
         updateKeepScreenOn(isCharging)
     }
 
-    private fun updateKeepScreenOn(isCharging: Boolean) {
-        if (isCharging) {
+    private fun updateKeepScreenOn(keepOn: Boolean) {
+        if (keepOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.decorView.keepScreenOn = true
+            
+            // Forçage de la luminosité pour éviter la mise en veille
+            val params = window.attributes
+            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+            window.attributes = params
+
+            if (wakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                @Suppress("DEPRECATION")
+                wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "VMADetect:WakeLock")
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire()
+            }
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window.decorView.keepScreenOn = false
+            
+            val params = window.attributes
+            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = params
+
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
         }
     }
 
@@ -393,11 +639,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
     override fun onProviderEnabled(provider: String) {}
     override fun onProviderDisabled(provider: String) {
         Toast.makeText(this, "Veuillez activer le GPS", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        saveAppState()
     }
 
     private fun loadSavedThreshold() {
@@ -534,10 +775,28 @@ class MainActivity : AppCompatActivity(), LocationListener {
         return detectedPanneaux.contains(line)
     }
 
-    private fun processPanneauForLimit(code: String) {
+    private fun processPanneauForLimit(code: String, panneauLoc: Location) {
         val components = code.split(",").map { it.trim().uppercase() }
         val mainCode = components.firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: components[0]
         
+        // Filtre Entrée/Sortie Agglo rapprochées
+        if (mainCode.startsWith("EB10") || mainCode.startsWith("EB20")) {
+            val type = if (mainCode.startsWith("EB10")) "EB10" else "EB20"
+            val lastLoc = lastAggloLocation
+            val lastType = lastAggloType
+            
+            if (lastLoc != null && lastType != null && lastType != type) {
+                val dist = panneauLoc.distanceTo(lastLoc)
+                if (dist < AGGLO_FILTER_DISTANCE) {
+                    // Trop proche d'un panneau opposé, on ignore
+                    if (isLoggingEnabled) logDebug("Panneau $type ignoré (trop proche de $lastType : ${dist.toInt()}m)")
+                    return
+                }
+            }
+            lastAggloType = type
+            lastAggloLocation = panneauLoc
+        }
+
         val speed = if (mainCode.contains("=>")) mainCode.substringAfter("=>").filter { it.isDigit() }.toIntOrNull() else null
 
         when {
