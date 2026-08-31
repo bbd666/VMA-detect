@@ -133,9 +133,11 @@
             android:layout_height="80dp"
             android:layout_marginEnd="20dp"
             android:background="@drawable/round_button"
-            android:text="Zone\n30"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/btn_zone30"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
+            android:textSize="11sp"
             app:backgroundTint="@null" />
 
         <Button
@@ -143,9 +145,112 @@
             android:layout_width="80dp"
             android:layout_height="80dp"
             android:background="@drawable/round_button_gray"
-            android:text="Fin\n30"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/btn_fin_zone30"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
+            android:textSize="11sp"
+            app:backgroundTint="@null" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_agglo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/layout_zone30">
+
+        <Button
+            android:id="@+id/btn_agglo_entree"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_marginEnd="20dp"
+            android:background="@drawable/round_button"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/btn_agglo_entree"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            app:backgroundTint="@null" />
+
+        <Button
+            android:id="@+id/btn_agglo_sortie"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:background="@drawable/round_button_gray"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/btn_agglo_sortie"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            app:backgroundTint="@null" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_limits"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/layout_agglo">
+
+        <Button
+            android:id="@+id/btn_limit_30"
+            android:layout_width="75dp"
+            android:layout_height="75dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/round_button_white_red"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/limit_30"
+            android:textColor="#000000"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            app:backgroundTint="@null" />
+
+        <Button
+            android:id="@+id/btn_limit_50"
+            android:layout_width="75dp"
+            android:layout_height="75dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/round_button_white_red"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/limit_50"
+            android:textColor="#000000"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            app:backgroundTint="@null" />
+
+        <Button
+            android:id="@+id/btn_limit_70"
+            android:layout_width="75dp"
+            android:layout_height="75dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/round_button_white_red"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/limit_70"
+            android:textColor="#000000"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            app:backgroundTint="@null" />
+
+        <Button
+            android:id="@+id/btn_limit_fin"
+            android:layout_width="75dp"
+            android:layout_height="75dp"
+            android:background="@drawable/round_button_white_black_bar"
+            android:maxLines="1"
+            android:padding="0dp"
+            android:text="@string/limit_fin"
+            android:textColor="#000000"
+            android:textSize="14sp"
             app:backgroundTint="@null" />
     </LinearLayout>
 

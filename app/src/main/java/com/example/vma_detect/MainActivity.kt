@@ -14,6 +14,7 @@ import android.media.ToneGenerator
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.OpenableColumns
 import android.view.WindowManager
@@ -47,6 +48,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var btnToggleLog: Button
     private lateinit var btnZone30: Button
     private lateinit var btnFinZone30: Button
+    private lateinit var btnAggloEntree: Button
+    private lateinit var btnAggloSortie: Button
+    private lateinit var btnLimit30: Button
+    private lateinit var btnLimit50: Button
+    private lateinit var btnLimit70: Button
+    private lateinit var btnLimitFin: Button
     private lateinit var btnTestSimu: Button
 
     private val KEY_THRESHOLD = "search_threshold"
@@ -67,6 +74,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var lastLoggedLocation: Location? = null
     private var lastValidLocation: Location? = null
     private var lastValidSimuLocation: Location? = null
+    private var lastReceivedLocation: Location? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
     private var lastAlertTime: Long = 0
@@ -147,6 +155,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         btnToggleLog = findViewById(R.id.btn_toggle_log)
         btnZone30 = findViewById(R.id.btn_zone30)
         btnFinZone30 = findViewById(R.id.btn_fin_zone30)
+        btnAggloEntree = findViewById(R.id.btn_agglo_entree)
+        btnAggloSortie = findViewById(R.id.btn_agglo_sortie)
+        btnLimit30 = findViewById(R.id.btn_limit_30)
+        btnLimit50 = findViewById(R.id.btn_limit_50)
+        btnLimit70 = findViewById(R.id.btn_limit_70)
+        btnLimitFin = findViewById(R.id.btn_limit_fin)
         btnTestSimu = findViewById(R.id.btn_test_simu)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         
@@ -165,11 +179,35 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
 
         btnZone30.setOnClickListener {
-            logZoneEvent("Zone 30")
+            logManualCsv("B30")
         }
 
         btnFinZone30.setOnClickListener {
-            logZoneEvent("Fin de zone 30")
+            logManualCsv("B51")
+        }
+
+        btnAggloEntree.setOnClickListener {
+            logManualCsv("EB10")
+        }
+
+        btnAggloSortie.setOnClickListener {
+            logManualCsv("EB20")
+        }
+
+        btnLimit30.setOnClickListener {
+            logManualCsv("B14=>30")
+        }
+
+        btnLimit50.setOnClickListener {
+            logManualCsv("B14=>50")
+        }
+
+        btnLimit70.setOnClickListener {
+            logManualCsv("B14=>70")
+        }
+
+        btnLimitFin.setOnClickListener {
+            logManualCsv("B33")
         }
 
         btnTestSimu.setOnClickListener {
@@ -178,8 +216,51 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
         checkLocationPermissions()
         
+        // Nettoyage au démarrage
+        clearLogFile()
+
         // Tentative de rechargement du dernier fichier CSV
         reloadLastCsv()
+    }
+
+    private fun getOutputDirectory(): File {
+        val documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val dir = File(documents, "VMA-detect-output")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
+    private fun clearLogFile() {
+        try {
+            val directory = getOutputDirectory()
+            val file = File(directory, "valeurs_distinctes.txt")
+            if (file.exists()) {
+                file.delete()
+            }
+            detectedPanneaux.clear()
+        } catch (e: Exception) {
+            // Échec silencieux au démarrage
+        }
+    }
+
+    private fun logDetection(nom: String, la: Float, lo: Float) {
+        val decoded = decodePanneau(nom)
+        val line = "$nom, $decoded, $la, $lo"
+        
+        // Si le panneau n'a jamais été détecté (nom + coordonnées uniques)
+        if (detectedPanneaux.add(line)) {
+            try {
+                val directory = getOutputDirectory()
+                val file = File(directory, "valeurs_distinctes.txt")
+                
+                // On ajoute la ligne à la fin du fichier
+                file.appendText(line + "\n")
+            } catch (e: Exception) {
+                // Échec silencieux de l'écriture
+            }
+        }
     }
 
     private fun checkLocationPermissions() {
@@ -234,49 +315,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     private fun processNewLocation(location: Location, isSimulation: Boolean) {
-        // Filtrage des points aberrants (activé en réel ET en simulation)
-        if (location.accuracy > 60) {
-            if (isLoggingEnabled) logDebug("Point rejeté (précision: ${location.accuracy}m)")
-            return 
-        }
+        lastReceivedLocation = location
         
-        val last = if (isSimulation) lastValidSimuLocation else lastValidLocation
-        if (last != null) {
-            val distance = location.distanceTo(last)
-            val timeDeltaSec = (location.time - last.time) / 1000.0
-            
-            if (timeDeltaSec > 0) {
-                val calculatedSpeedKmh = (distance / timeDeltaSec) * 3.6
-                // Si la vitesse entre deux points > 250 km/h, c'est probablement un saut GPS aberrant
-                if (calculatedSpeedKmh > 250) {
-                    if (isLoggingEnabled || isSimulation) {
-                        val source = if (isSimulation) "SIMU" else "GPS"
-                        logDebug("Point rejeté [$source] (saut aberrant: ${calculatedSpeedKmh.toInt()} km/h)")
-                    }
-                    return
-                }
-            }
-        }
-        
-        if (isSimulation) {
-            lastValidSimuLocation = location
-        } else {
-            lastValidLocation = location
-        }
-
-        // Forçage périodique du maintien de l'écran si en charge
-        if (isCharging) {
-            runOnUiThread {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                window.decorView.keepScreenOn = true
-            }
-        }
-
         val latPos = String.format(Locale.US, "%.6f", location.latitude)
         val lonPos = String.format(Locale.US, "%.6f", location.longitude)
         
         runOnUiThread {
-            tvLocation.text = "Position : Lat $latPos, Lon $lonPos"
+            if (location.accuracy > 60 && !isSimulation) {
+                tvLocation.text = "Signal faible (±${location.accuracy.toInt()}m) : Lat $latPos, Lon $lonPos"
+            } else {
+                tvLocation.text = "Position : Lat $latPos, Lon $lonPos"
+            }
+            
             // Vitesse en km/h
             val speedKmH = (location.speed * 3.6).toInt()
             tvSpeed.text = "Vitesse : $speedKmH km/h"
@@ -287,6 +337,36 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 if (!isSimulation) playAlertSound()
             } else {
                 tvSpeed.setTextColor(defaultSpeedColor)
+            }
+        }
+
+        // Filtrage des points aberrants pour les logs et la détection
+        if (location.accuracy > 60) {
+            if (isLoggingEnabled) logDebug("Point ignoré pour détection (précision: ${location.accuracy}m)")
+            return 
+        }
+        
+        if (isSimulation) {
+            lastValidSimuLocation = location
+        } else {
+            lastValidLocation = location
+        }
+        
+        val last = if (isSimulation) lastValidSimuLocation else lastValidLocation
+        if (last != null) {
+            val distance = location.distanceTo(last)
+            val timeDeltaSec = (location.time - last.time) / 1000.0
+            
+            if (timeDeltaSec > 0) {
+                val calculatedSpeedKmh = (distance / timeDeltaSec) * 3.6
+                // Si la vitesse entre deux points > 300 km/h, c'est probablement un saut GPS aberrant
+                if (calculatedSpeedKmh > 300) {
+                    if (isLoggingEnabled || isSimulation) {
+                        val source = if (isSimulation) "SIMU" else "GPS"
+                        logDebug("Point rejeté [$source] (saut aberrant: ${calculatedSpeedKmh.toInt()} km/h)")
+                    }
+                    return
+                }
             }
         }
 
@@ -325,28 +405,30 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 lastValidSimuLocation = null
                 lastAggloType = null
                 lastAggloLocation = null
-                val resFile = File(getExternalFilesDir(null), "res.txt")
+                val resFile = File(getOutputDirectory(), "res.txt")
                 resFile.writeText("--- Début Simulation ---\n")
+
+                var simuTime = System.currentTimeMillis()
 
                 contentResolver.openInputStream(uri)?.use { inputStream ->
                     BufferedReader(InputStreamReader(inputStream)).use { reader ->
                         var line: String? = reader.readLine()
                         while (line != null) {
                             val tokens = line.split(",")
-                            if (tokens.size >= 4) {
+                            if (tokens.size >= 3) {
                                 try {
-                                    val time = tokens[0].trim().toLong()
-                                    val la = tokens[1].trim().toDouble()
-                                    val lo = tokens[2].trim().toDouble()
-                                    val speedKmh = tokens[3].trim().toDouble()
+                                    val la = tokens[0].trim().toDouble()
+                                    val lo = tokens[1].trim().toDouble()
+                                    val speedKmh = tokens[2].trim().toDouble()
 
                                     val mockLoc = Location("simu").apply {
                                         latitude = la
                                         longitude = lo
                                         speed = (speedKmh / 3.6).toFloat()
-                                        this.time = time
+                                        this.time = simuTime
                                     }
                                     processNewLocation(mockLoc, true)
+                                    simuTime += 1000 // On simule 1 seconde entre chaque point
                                 } catch (e: Exception) {}
                             }
                             line = reader.readLine()
@@ -383,14 +465,11 @@ class MainActivity : AppCompatActivity(), LocationListener {
         // On ne logue que si on a bougé de plus de 10m
         if (lastLoc == null || location.distanceTo(lastLoc) >= 10f) {
             try {
-                val directory = getExternalFilesDir(null)
+                val directory = getOutputDirectory()
                 val file = File(directory, "log_gps.txt")
                 
-                // Utilisation du temps réel du point GPS
-                val timestamp = location.time
                 val speedKmh = location.speed * 3.6
-                
-                val line = "$timestamp, ${location.latitude}, ${location.longitude}, $speedKmh\n"
+                val line = "${location.latitude}, ${location.longitude}, $speedKmh\n"
                 file.appendText(line)
                 lastLoggedLocation = location
             } catch (e: Exception) {
@@ -414,21 +493,20 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun logDebug(message: String) {
         try {
-            val directory = getExternalFilesDir(null)
-            val file = File(directory, "log_gps.txt")
+            val directory = getOutputDirectory()
+            val file = File(directory, "debug.txt")
             val timestamp = System.currentTimeMillis()
             file.appendText("$timestamp, DEBUG, $message\n")
         } catch (e: Exception) {}
     }
 
-    private fun logZoneEvent(label: String) {
-        val location = lastValidLocation
+    private fun logManualCsv(label: String) {
+        val location = lastReceivedLocation
         if (location != null) {
             try {
-                val directory = getExternalFilesDir(null)
+                val directory = getOutputDirectory()
                 val file = File(directory, "points_interet.txt")
-                val timestamp = System.currentTimeMillis()
-                val line = "$timestamp, ${location.latitude}, ${location.longitude}, $label\n"
+                val line = "\"$label\"=>NULL,\"${location.latitude}, ${location.longitude}\"\n"
                 file.appendText(line)
                 Toast.makeText(this, "$label enregistré", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
@@ -486,6 +564,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 }
                 processPanneauForLimit(panneau[nearestIndex], panneauLoc)
                 markAsDetected(panneau[nearestIndex], pLat, pLon)
+                logDetection(panneau[nearestIndex], pLat, pLon)
             }
         } else {
             runOnUiThread {
@@ -496,7 +575,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun logSimulationDetection(panneauCode: String, location: Location, pLat: Float, pLon: Float) {
         try {
-            val resFile = File(getExternalFilesDir(null), "res.txt")
+            val resFile = File(getOutputDirectory(), "res.txt")
             val decoded = decodePanneau(panneauCode)
             val line = "Détection: $decoded (Code: $panneauCode) à la position GPS [${location.latitude}, ${location.longitude}]. Position Panneau: [$pLat, $pLon]\n"
             resFile.appendText(line)

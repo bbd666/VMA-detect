@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">VMA-detect</string>
+    <string name="btn_agglo_entree">Entrée Agglo</string>
+    <string name="btn_agglo_sortie">Sortie Agglo</string>
+    <string name="btn_zone30">Zone 30</string>
+    <string name="btn_fin_zone30">Fin 30</string>
+    <string name="limit_30">30</string>
+    <string name="limit_50">50</string>
+    <string name="limit_70">70</string>
+    <string name="limit_fin">Fin</string>
 </resources>
