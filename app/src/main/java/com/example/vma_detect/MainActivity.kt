@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private var lastAggloType: String? = null
     private var lastAggloLocation: Location? = null
-    private val AGGLO_FILTER_DISTANCE = 50f // mètres
+    private val AGGLO_FILTER_DISTANCE = 100f // mètres
 
     private val keepAliveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val keepAliveRunnable = object : Runnable {
@@ -779,21 +779,68 @@ class MainActivity : AppCompatActivity(), LocationListener {
         val components = code.split(",").map { it.trim().uppercase() }
         val mainCode = components.firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: components[0]
         
-        // Filtre Entrée/Sortie Agglo rapprochées
+        // Filtrage des panneaux d'agglomération (Entrée EB10 / Sortie EB20)
         if (mainCode.startsWith("EB10") || mainCode.startsWith("EB20")) {
-            val type = if (mainCode.startsWith("EB10")) "EB10" else "EB20"
-            val lastLoc = lastAggloLocation
-            val lastType = lastAggloType
-            
-            if (lastLoc != null && lastType != null && lastType != type) {
-                val dist = panneauLoc.distanceTo(lastLoc)
-                if (dist < AGGLO_FILTER_DISTANCE) {
-                    // Trop proche d'un panneau opposé, on ignore
-                    if (isLoggingEnabled) logDebug("Panneau $type ignoré (trop proche de $lastType : ${dist.toInt()}m)")
-                    return
+            // Analyse de la zone (100m autour du panneau actuel)
+            val zoneAggloIndices = mutableListOf<Int>()
+            for (i in panneau.indices) {
+                val pCode = panneau[i].split(",").map { it.trim().uppercase() }
+                    .firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: panneau[i]
+                
+                if (pCode.startsWith("EB10") || pCode.startsWith("EB20")) {
+                    val pLoc = Location("").apply {
+                        latitude = lat[i].toDouble()
+                        longitude = long[i].toDouble()
+                    }
+                    if (panneauLoc.distanceTo(pLoc) <= AGGLO_FILTER_DISTANCE) {
+                        zoneAggloIndices.add(i)
+                    }
                 }
             }
-            lastAggloType = type
+
+            // Logique de filtrage selon le nombre de panneaux dans la zone de 100m
+            when {
+                zoneAggloIndices.size == 2 -> {
+                    val hasEB10 = zoneAggloIndices.any { idx ->
+                        val pCode = panneau[idx].split(",").map { it.trim().uppercase() }
+                            .firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: panneau[idx]
+                        pCode.startsWith("EB10")
+                    }
+                    val hasEB20 = zoneAggloIndices.any { idx ->
+                        val pCode = panneau[idx].split(",").map { it.trim().uppercase() }
+                            .firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: panneau[idx]
+                        pCode.startsWith("EB20")
+                    }
+                    
+                    if (hasEB10 && hasEB20) {
+                        if (currentLimit == 50 && mainCode.startsWith("EB10")) {
+                            if (isLoggingEnabled) logDebug("Entrée $mainCode ignorée (Paire EB10/EB20, limite à 50)")
+                            return
+                        } else if (currentLimit > 50 && mainCode.startsWith("EB20")) {
+                            if (isLoggingEnabled) logDebug("Sortie $mainCode ignorée (Paire EB10/EB20, limite > 50)")
+                            return
+                        }
+                    }
+                }
+                zoneAggloIndices.size > 2 -> {
+                    // Si c'est une sortie (EB20), on vérifie s'il y a une entrée (EB10) dans la même zone
+                    if (mainCode.startsWith("EB20")) {
+                        val hasEntranceInZone = zoneAggloIndices.any { idx ->
+                            val pCode = panneau[idx].split(",").map { it.trim().uppercase() }
+                                .firstOrNull { !it.startsWith("M1") && !it.startsWith("M2") } ?: panneau[idx]
+                            pCode.startsWith("EB10")
+                        }
+                        
+                        if (hasEntranceInZone) {
+                            if (isLoggingEnabled) logDebug("Sortie $mainCode ignorée : zone dense (>2 panneaux) avec entrée EB10 présente.")
+                            return
+                        }
+                    }
+                }
+            }
+            
+            // Mise à jour de l'état du dernier panneau d'agglo vu
+            lastAggloType = if (mainCode.startsWith("EB10")) "EB10" else "EB20"
             lastAggloLocation = panneauLoc
         }
 
